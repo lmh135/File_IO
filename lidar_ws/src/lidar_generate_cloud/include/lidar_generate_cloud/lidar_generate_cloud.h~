@@ -1,0 +1,38 @@
+#ifndef _CLOUD_H
+#define _CLOUD_H
+
+
+
+#define MDEG2RAD 0.01745329
+
+double Vertical_table[16]={-0.2618,0.0175,-0.2269,0.0524,-0.1920,0.0873,-0.1571,0.1222,-0.1222,0.1571,-0.0873,0.1920,-0.0524,0.2269,-0.0175,0.2618};
+typedef struct _Point
+{
+	double x;
+	double y;
+	double z;
+}Point;
+
+
+
+
+
+
+
+
+void generateCbn(double roll,double pitch,double yaw);
+void huang_dataHandle (Point point[][16], double posNED[], double euler[][3]);
+
+
+
+
+
+
+
+
+
+
+
+
+
+#endif

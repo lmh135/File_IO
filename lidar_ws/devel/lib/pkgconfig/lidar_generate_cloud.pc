@@ -1,0 +1,8 @@
+prefix=/home/longmen/lidar_ws/devel
+
+Name: lidar_generate_cloud
+Description: Description of lidar_generate_cloud
+Version: 0.0.0
+Cflags: 
+Libs: -L/home/longmen/lidar_ws/devel/lib 
+Requires: lidar_msgs roscpp rospy std_msgs

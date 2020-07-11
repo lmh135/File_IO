@@ -1,0 +1,440 @@
+#include <ros/ros.h>
+#include<sys/types.h>
+#include<sys/socket.h>
+#include<stdio.h>
+#include<netinet/in.h>
+#include<arpa/inet.h>
+#include<unistd.h>
+#include<stdlib.h>
+#include<string.h>
+#include<errno.h>
+#include<pthread.h>
+#include<sys/time.h>
+#include "lidar_msgs/SynchrPacket.h"
+#include "lidar_msgs/RecvPacket.h"
+#include "param.h"
+//#include "lidar_msgs/LaserPacket.h"
+//#include "lidar_msgs/ImuPacket.h"
+//#include "lidar_msgs/GPSPacket.h"
+
+
+/*
+pthread_mutex_t imu_mutex;
+lidar_msgs::ImuPacket imu_pkt[NUM_IMU_SYNCHR];
+
+void imu_callback(const lidar_msgs::ImuPacket::ConstPtr& data)
+{
+	int i;
+	//printf("get imu message! \n");
+	pthread_mutex_lock(&imu_mutex);
+	for(i=NUM_IMU_SYNCHR-1;i>0;i--)		     									  
+		imu_pkt[i] = imu_pkt[i-1];
+	imu_pkt[0] = *data;
+	imu_pkt[0].timestamp = imu_pkt[0].timestamp-T_DELAY_SYS;
+	//ROS_INFO("imu time: %lld.",imu_pkt[0].timestamp);
+	pthread_mutex_unlock(&imu_mutex);
+
+}
+
+*/
+
+/*
+pthread_mutex_t gps_mutex;
+lidar_msgs::GPSPacket gps_pkt;
+
+void gps_callback(const lidar_msgs::GPSPacket::ConstPtr& data)
+{
+	//printf("get gps message! \n");
+	pthread_mutex_lock(&gps_mutex);
+	gps_pkt = *data;
+	//ROS_INFO("gps time: %lld.",gps_pkt.timestamp);
+	pthread_mutex_unlock(&gps_mutex);	
+
+}
+
+*/
+
+
+/*
+pthread_mutex_t laser_mutex;
+lidar_msgs::LaserPacket laser_pkt;
+
+pthread_mutex_t flag_mutex;
+bool flag_update = 0;
+
+void laser_callback(const lidar_msgs::LaserPacket::ConstPtr& data)
+{
+	pthread_mutex_lock(&laser_mutex);
+	laser_pkt = *data;
+	laser_pkt.timestamp = laser_pkt.timestamp-T_DELAY_PACK-T_DELAY_TRANS-T_DELAY_SYS;
+	//ROS_INFO("laser time: %lld.",laser_pkt.timestamp);
+	pthread_mutex_unlock(&laser_mutex);
+
+	
+	pthread_mutex_lock(&flag_mutex);
+	flag_update = 1;
+	pthread_mutex_unlock(&flag_mutex);
+
+	//printf("get laser message! \n");
+
+}
+*/
+
+/*
+void *lidar_synchr(void *nh)
+{
+	int i,j,k;
+
+	long long tim_laser[12],tim_imu,tim_imu1,tim_imu2;
+
+	bool flag_laser_update;	
+	static int synchr_process_num = 0;
+
+	lidar_msgs::SynchrPacket synchr_pkt;
+
+	lidar_msgs::ImuPacket imu_pkt_copy[NUM_IMU_SYNCHR];
+
+	ros::Publisher synchr_pub = (*(ros::NodeHandle*)nh).advertise<lidar_msgs::SynchrPacket>("synchr_packet", 5000);
+
+	while(ros::ok())
+	{
+		//****** 等待laser话题更新
+		pthread_mutex_lock(&flag_mutex);
+		flag_laser_update = flag_update;
+		pthread_mutex_unlock(&flag_mutex);
+		
+		while(0==flag_laser_update)//不能直接使用flag_update，避免死锁
+		{
+			pthread_mutex_lock(&flag_mutex);
+			flag_laser_update = flag_update;
+			pthread_mutex_unlock(&flag_mutex);
+			usleep(100);
+		}
+		pthread_mutex_lock(&flag_mutex);
+		flag_update = 0;
+		pthread_mutex_unlock(&flag_mutex);
+		//* laser话题已更新 
+
+		//* laser数据记录入同步数据包中
+		pthread_mutex_lock(&laser_mutex);
+		synchr_pkt.laserpkt = laser_pkt;
+		pthread_mutex_unlock(&laser_mutex);
+
+		//* 获取imu数据包最新更新时间 
+		pthread_mutex_lock(&imu_mutex);
+		tim_imu = imu_pkt[0].timestamp;
+		pthread_mutex_unlock(&imu_mutex);
+	
+		//* 计算laser数据包中12组数据的采集时间 
+		for(i=0;i<12;i++)
+			tim_laser[i] = synchr_pkt.laserpkt.timestamp-(synchr_pkt.laserpkt.Azimuth[11]-synchr_pkt.laserpkt.Azimuth[i])/AnglePerUs;
+		
+		//* 等待imu更新时间大于laser更新时间 
+		while(tim_imu<tim_laser[11])
+		{
+			pthread_mutex_lock(&imu_mutex);
+			tim_imu = imu_pkt[0].timestamp;
+			pthread_mutex_unlock(&imu_mutex);
+			usleep(10);
+		}
+	
+		//* 复制imu数据包更新集 
+		pthread_mutex_lock(&imu_mutex);
+		memcpy(imu_pkt_copy,imu_pkt,sizeof(imu_pkt));
+		//for(i=0;i<NUM_IMU_SYNCHR;i++)
+			//{//imu_pkt_copy[i] = imu_pkt[i];
+			//ROS_INFO("%d imu time:%lld",i,imu_pkt_copy[i].timestamp);	}
+		pthread_mutex_unlock(&imu_mutex);
+
+		for(i=0;i<12;i++)
+		{
+			ROS_INFO("%d laser time:%lld ",i,tim_laser[i]);
+			ROS_INFO("%d laser Azimuth:%f ",i,synchr_pkt.laserpkt.Azimuth[i]);
+		}		
+	
+		ROS_INFO("laser time:%lld  imu time:%lld",tim_laser[11],tim_imu);		
+	
+		//* imu数据线性插值 
+		for(i=0;i<12;i++)
+		{
+			for(j=0;j<NUM_IMU_SYNCHR;j++)
+			{
+				tim_imu1 = imu_pkt_copy[j].timestamp;
+				//* 依据更新时间，计算laser每组数据在imu更新集中的位置 
+				if(tim_imu1 <= tim_laser[i]) 
+				{	
+					ROS_INFO("%d laser time:%lld ; %d imu time:%lld",i,tim_laser[i],j,tim_imu1);
+					break;
+				}
+			}
+			if(0==j)
+			{
+				ROS_ERROR("Synchr error: imu data too old!");
+			}
+			else if(j<NUM_IMU_SYNCHR)
+			{
+				//* tim_laser[i]位于tim_imu1与tim_imu2之间 
+				tim_imu2 = imu_pkt_copy[j-1].timestamp;
+
+				//* 线性插值
+				for(k=0;k<3;k++)
+				{
+					synchr_pkt.imupkt[i].imu_gyro[k] = imu_pkt_copy[j].imu_gyro[k]+(tim_laser[i]-tim_imu1)*(imu_pkt_copy[j-1].imu_gyro[k]-imu_pkt_copy[j].imu_gyro[k])/(tim_imu2-tim_imu1);
+					synchr_pkt.imupkt[i].imu_accel[k] = imu_pkt_copy[j].imu_accel[k]+(tim_laser[i]-tim_imu1)*(imu_pkt_copy[j-1].imu_accel[k]-imu_pkt_copy[j].imu_accel[k])/(tim_imu2-tim_imu1);
+					synchr_pkt.imupkt[i].imu_magn[k] = imu_pkt_copy[j].imu_magn[k]+(tim_laser[i]-tim_imu1)*(imu_pkt_copy[j-1].imu_magn[k]-imu_pkt_copy[j].imu_magn[k])/(tim_imu2-tim_imu1);
+					synchr_pkt.imupkt[i].imu_euler[k] = imu_pkt_copy[j].imu_euler[k]+(tim_laser[i]-tim_imu1)*(imu_pkt_copy[j-1].imu_euler[k]-imu_pkt_copy[j].imu_euler[k])/(tim_imu2-tim_imu1);
+				}
+				synchr_pkt.imupkt[i].timestamp = tim_laser[i]; 
+				synchr_pkt.imupkt[i].id_num = imu_pkt_copy[j].id_num;
+
+				synchr_process_num++;
+			}
+			else
+			{
+				ROS_ERROR("Synchr error: imu data too new!");
+			}
+
+		}
+		//* laser数据包12组数据均插值完成后方可发布同步消息 
+		if(12 == synchr_process_num)
+		{
+			//* gps数据记录入同步数据包中（待修改） 
+			pthread_mutex_lock(&gps_mutex);
+			synchr_pkt.gpspkt = gps_pkt;
+			pthread_mutex_unlock(&gps_mutex);
+	
+			//* 发布同步消息 
+			synchr_pub.publish(synchr_pkt);	
+			synchr_process_num = 0;
+		}
+
+	}
+
+}
+
+*/
+
+
+
+class Synchr_process
+{
+	protected:	
+		ros::NodeHandle nh;
+		ros::Publisher synchr_pub;
+		//ros::Subscriber sub_recv_pkt;
+		lidar_msgs::ImuPacket imu_pkt_buf[10];
+
+	public:
+		Synchr_process()
+		{
+			synchr_pub = nh.advertise<lidar_msgs::SynchrPacket>("synchr_packet", 2000);
+			//sub_recv_pkt = nh.subscribe("recv_packet", 2000, this->recv_callback);
+		}
+
+		void recv_callback(const lidar_msgs::RecvPacket::ConstPtr& data);
+		
+
+		~Synchr_process()
+		{
+			;
+		}
+
+};
+
+void Synchr_process::recv_callback(const lidar_msgs::RecvPacket::ConstPtr& data)
+{
+	lidar_msgs::SynchrPacket synchr_pkt;
+
+	lidar_msgs::LaserPacket laser_pkt = data->laserpkt;
+
+	int i,j,k;
+	long long tim_laser[12],tim_imu1,tim_imu2;
+
+	//static lidar_msgs::ImuPacket last_imu_pkt;
+	static bool first_entry = 0;
+
+	if(first_entry == 0)
+	{
+		for(i=9;i>0;i--)
+			imu_pkt_buf[i] = imu_pkt_buf[i-1];
+		imu_pkt_buf[0] = data->imupkt;
+		
+		first_entry = 1;
+	}
+	else
+	{
+		//ROS_INFO("Azimuth:%f ",data->laserpkt.Azimuth[11]);
+		//* 计算laser数据包中12组数据的采集时间 
+		
+
+		for(i=9;i>0;i--)
+			imu_pkt_buf[i] = imu_pkt_buf[i-1];
+		imu_pkt_buf[0] = data->imupkt;
+
+		tim_laser[11] = laser_dat.timestamp;
+		for(i=10;i>=0;i--)
+			tim_laser[i] = tim_laser[i+1]-2*T_CYCLE_PACK;
+
+		for(i=0;i<12;i++)
+		{
+			for(j=0;j<10;j++)
+			{
+				tim_imu1 = imu_pkt_buf[j].timestamp;
+				if(tim_imu1 <= tim_laser[i])
+					break;
+			}
+			if(0==j)
+			{
+				for(k=0;k<3;k++)
+				{
+					synchr_pkt.imupkt[i].imu_gyro[k] = imu_pkt_buf[j].imu_gyro[k];
+					synchr_pkt.imupkt[i].imu_accel[k] = imu_pkt_buf[j].imu_accel[k];
+					synchr_pkt.imupkt[i].imu_magn[k] = imu_pkt_buf[j].imu_magn[k];
+					synchr_pkt.imupkt[i].imu_euler[k] = imu_pkt_buf[j].imu_euler[k];
+				}
+			}
+			else if(j<10)
+			{
+				tim_imu2 = imu_pkt_buf[j-1].timestamp;
+
+				for(k=0;k<3;k++)
+				{
+					synchr_pkt.imupkt[i].imu_gyro[k] = imu_pkt_buf[j].imu_gyro[k]+(tim_laser[i]-tim_imu1)*(imu_pkt_buf[j-1].imu_gyro[k]-imu_pkt_buf[j].imu_gyro[k])/(tim_imu2-tim_imu1);
+					synchr_pkt.imupkt[i].imu_accel[k] = imu_pkt_buf[j].imu_accel[k]+(tim_laser[i]-tim_imu1)*(imu_pkt_buf[j-1].imu_accel[k]-imu_pkt_buf[j].imu_accel[k])/(tim_imu2-tim_imu1);
+					synchr_pkt.imupkt[i].imu_magn[k] = imu_pkt_buf[j].imu_magn[k]+(tim_laser[i]-tim_imu1)*(imu_pkt_buf[j-1].imu_magn[k]-imu_pkt_buf[j].imu_magn[k])/(tim_imu2-tim_imu1);
+					synchr_pkt.imupkt[i].imu_euler[k] = imu_pkt_buf[j].imu_euler[k]+(tim_laser[i]-tim_imu1)*(imu_pkt_buf[j-1].imu_euler[k]-imu_pkt_buf[j].imu_euler[k])/(tim_imu2-tim_imu1);
+				}
+			}
+			synchr_pkt.imupkt[i].timestamp = tim_laser[i];
+			synchr_pkt.imupkt[i].id_num = data->laserpkt.id_num;
+		}
+
+		//* 线性插值
+
+
+
+		synchr_pkt.laserpkt = data->laserpkt;
+		synchr_pkt.gpspkt = data->gpspkt;
+
+		synchr_pub.publish(synchr_pkt);	
+		ros::spinOnce();
+
+		//ROS_INFO("%lld    %lld    %lld ",last_imu_pkt.timestamp,data->laserpkt.timestamp,data->imupkt.timestamp);
+				
+		
+	}
+
+}
+
+
+
+
+int main(int argc, char** argv)
+{
+	ros::init(argc, argv, "lidar_synchronization");
+
+	
+	ros::NodeHandle nh;
+
+	//pthread_t th_synchr;
+	//int ret = 0;
+/*
+	if(pthread_mutex_init(&(laser_mutex), NULL) != 0){
+            perror("main:laser mutex init failed!");
+            exit(1);	
+        }
+	if(pthread_mutex_init(&(imu_mutex), NULL) != 0){
+            perror("main:imu mutex init failed!");
+            exit(1);	
+        }
+	if(pthread_mutex_init(&(gps_mutex), NULL) != 0){
+            perror("main:gps mutex init failed!");
+            exit(1);	
+        }
+	if(pthread_mutex_init(&(flag_mutex), NULL) != 0){
+            perror("main:flag mutex init failed!");
+            exit(1);	
+        }
+*/
+	usleep(500000);
+
+	Synchr_process opt = Synchr_process();
+	//ros::Publisher syn_pub = nh.advertise<lidar_msgs::SynchrPacket>("synchr_packet", 2);
+	ros::Subscriber sub_recv_pkt = nh.subscribe("recv_packet", 2000, &Synchr_process::recv_callback, &opt);
+	//ros::Subscriber sub_imu = nh_imu.subscribe("imu_packet", 5000, imu_callback);
+	//ros::Subscriber sub_gps = nh_gps.subscribe("gps_packet", 1000, gps_callback);
+	
+	
+
+	
+/*
+	ret=pthread_create(&th_synchr,NULL,lidar_synchr,&nh_synchr);//创建数据同步数据线程
+	if(ret!=0)
+	{
+		printf("create synchr thread error!\n");
+		exit(1);
+	}
+*/
+	
+	//while(ros::ok())
+	//{
+		ros::spin();
+	//} 
+
+
+	return 0;
+
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

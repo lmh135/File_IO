@@ -1,0 +1,2 @@
+lidar_generate_cloud:lidar_msgs:lidar_receive:lidar_station:lidar_synchronization
+-DCATKIN_DEVEL_PREFIX=/home/longmen/lidar_ws/devel -DCMAKE_INSTALL_PREFIX=/home/longmen/lidar_ws/install -G Unix Makefiles

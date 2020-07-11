@@ -1,0 +1,11 @@
+<launch>
+ 
+<arg name="file-name" default="/home/longmen/lidar_data_offline/srcdata_b"/>
+
+
+<node name="lidar_receive_offline" pkg="lidar_receive" type="lidar_receive_offline" output="screen" args="$(arg file-name)"/>
+<node name="lidar_synchronization" pkg="lidar_synchronization" type="lidar_synchronization" />
+<node name="lidar_generate_cloud" pkg="lidar_generate_cloud" type="lidar_generate_cloud" />
+
+</launch>
+

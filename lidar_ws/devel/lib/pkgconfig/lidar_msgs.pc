@@ -1,0 +1,8 @@
+prefix=/home/longmen/lidar_ws/devel
+
+Name: lidar_msgs
+Description: Description of lidar_msgs
+Version: 0.0.0
+Cflags: -I/home/longmen/lidar_ws/devel/include
+Libs: -L/home/longmen/lidar_ws/devel/lib 
+Requires: roscpp rospy std_msgs message_runtime

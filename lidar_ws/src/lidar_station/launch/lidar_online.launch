@@ -1,0 +1,12 @@
+<launch>
+  #### publish  odom to map transform ###########
+
+  <node pkg="tf" type="static_transform_publisher" name="base_link_to_laser"
+    args="0.0 0.0 0.0 0.0 0.0 3.14159 /map /odom 40" />
+
+<node name="lidar_receive_online" pkg="lidar_receive" type="lidar_receive_online" />
+<node name="lidar_synchronization" pkg="lidar_synchronization" type="lidar_synchronization" />
+<node name="lidar_generate_cloud" pkg="lidar_generate_cloud" type="lidar_generate_cloud" />
+
+</launch>
+

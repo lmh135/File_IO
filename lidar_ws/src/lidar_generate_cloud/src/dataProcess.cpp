@@ -1,0 +1,124 @@
+#include "dataProcess.h"
+
+
+
+
+
+
+double Cbn[3][3];
+
+//double dRm[9] = {0.9997 ,  -0.0232 ,  -0.0035,
+//    0.0233 ,   0.9980  ,  0.0586,
+//    0.0021  , -0.0587 ,   0.9983};
+
+double dRm[9] = {1 ,  -1*delta_theta2*DEG2RAD ,  delta_theta1*DEG2RAD,
+    delta_theta2*DEG2RAD ,   1  ,  -1*delta_theta0*DEG2RAD,
+    -1*delta_theta1*DEG2RAD  , delta_theta0*DEG2RAD ,   1};
+
+//double dRm[9] = {1 ,  0 ,  0,
+//    0 ,   1  ,  0,
+//    0  , 0 ,   1};
+/*
+------------------------------------------------------------
+		to calculate the transfer matrix
+	IN : angle	roll, pitch, yaw
+	OUT: tranfer matrix Cbn[3][3]
+------------------------------------------------------------
+*/
+void generateCbn(float roll,float pitch,float yaw)
+{	
+	// yaw=39;////-74;//91.84;
+	double cosPitch,sinPitch;
+	double cosRoll,sinRoll;
+	double cosYaw,sinYaw;
+
+    	cosPitch = cos((pitch)*DEG2RAD);
+    	sinPitch = sin((pitch)*DEG2RAD);
+
+   	cosRoll = cos((roll)*DEG2RAD);
+   	sinRoll = sin((roll)*DEG2RAD);
+
+	cosYaw = cos((yaw)*DEG2RAD);
+   	sinYaw = sin((yaw)*DEG2RAD);
+
+    	Cbn[0][0] = cosYaw*cosPitch;
+    	Cbn[0][1] = -sinYaw*cosRoll + cosYaw*sinPitch*sinRoll;
+    	Cbn[0][2] = sinYaw*sinRoll + cosYaw*sinPitch*cosRoll;
+
+    	Cbn[1][0] = sinYaw*cosPitch;
+    	Cbn[1][1] = cosYaw*cosRoll + sinYaw*sinPitch*sinRoll;
+    	Cbn[1][2] = sinYaw*sinPitch*cosRoll - cosYaw*sinRoll;
+
+    	Cbn[2][0] = -sinPitch;
+    	Cbn[2][1] = cosPitch*sinRoll;
+    	Cbn[2][2] = cosPitch*cosRoll;
+	
+	return;
+}
+
+
+/*
+---------------------------------------------------------------------------
+		transfer the raw data to (x,y,z)
+	IN : raw_distance, plane position(in NED), plane attitude angle
+	OUT: points in (x,y,z), stored in pointXYZ[]
+---------------------------------------------------------------------------
+*/
+
+void dataHandle (Point point[][16], double posNED[], float euler[][3], Point pointXYZ[][16])
+{
+       	int i,j,k;
+	double xp,yp,zp;
+       	double Xb,Yb,Zb;
+	double xb,yb,zb;
+
+        for(i=0;i<12;i++)
+	{
+		generateCbn(euler[i][0],euler[i][1],euler[i][2]);
+		for(j=0;j<16;j++)
+		{
+			if ((((point[i][j].z)<=0.01)&&((point[i][j].z)>=-0.01))||(((point[i][j].x)<=0.01)&&((point[i][j].x)>=-0.01))||(((point[i][j].y)<=0.01)&&((point[i][j].y)>=-0.01)))
+			{  
+				pointXYZ[i][j].x = 0.0;
+			    	pointXYZ[i][j].y = 0.0;
+			    	pointXYZ[i][j].z = 0.0;
+			}
+			else
+                        {
+ 				xb =point[i][j].z;
+			     	yb =point[i][j].x;        
+			     	zb =point[i][j].y;
+
+				Xb = dRm[0]*xb+dRm[1]*yb+dRm[2]*zb + delta_xb+DPlg_x;
+				Yb = dRm[3]*xb+dRm[4]*yb+dRm[5]*zb + delta_yb+DPlg_y;
+				Zb = dRm[6]*xb+dRm[7]*yb+dRm[8]*zb + delta_zb+DPlg_z;
+
+			     	pointXYZ[i][j].x = Xb*Cbn[0][0]+Yb*Cbn[0][1]+Zb*Cbn[0][2] + posNED[0]+x_move;
+			     	pointXYZ[i][j].y = Xb*Cbn[1][0]+Yb*Cbn[1][1]+Zb*Cbn[1][2] + posNED[1]+y_move;
+			     	pointXYZ[i][j].z = Xb*Cbn[2][0]+Yb*Cbn[2][1]+Zb*Cbn[2][2] + posNED[2]+z_move;  
+			}    
+   	
+		}
+	}
+
+	return;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
